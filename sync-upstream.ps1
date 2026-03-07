@@ -1,91 +1,85 @@
 $ErrorActionPreference = "Stop"
 
-# pi-mono 与上游同步脚本
-# 用法: .\sync-upstream.ps1 [-Force]
-
-param(
-    [switch]$Force
-)
+# pi-mono upstream sync script
+# Usage: .\sync-upstream.ps1
 
 $UpstreamRepo = "https://github.com/badlogic/pi-mono.git"
 $UpstreamBranch = "main"
 
-Write-Host "=== 开始同步 pi-mono 上游 ===" -ForegroundColor Cyan
+Write-Host "=== Start syncing pi-mono upstream ===" -ForegroundColor Cyan
 
-# 1. 检查 upstream 是否已配置
+# 1. Check if upstream is configured
 $upstreamExists = $false
-try {
-    $null = git remote get-url upstream
+$result = git remote get-url upstream 2>&1
+if ($LASTEXITCODE -eq 0) {
     $upstreamExists = $true
-} catch {
-    $upstreamExists = $false
 }
 
 if (-not $upstreamExists) {
-    Write-Host "[1/6] 添加 upstream 远程仓库..." -ForegroundColor Yellow
+    Write-Host "[1/6] Adding upstream remote..." -ForegroundColor Yellow
     git remote add upstream $UpstreamRepo
 } else {
-    Write-Host "[1/6] upstream 已存在，跳过添加" -ForegroundColor Green
+    Write-Host "[1/6] upstream exists, skip adding" -ForegroundColor Green
 }
 
-# 2. 获取上游最新代码
-Write-Host "[2/6] 获取上游最新代码..." -ForegroundColor Yellow
+# 2. Fetch upstream
+Write-Host "[2/6] Fetching upstream..." -ForegroundColor Yellow
 git fetch upstream
 
-# 3. 检查当前分支
+# 3. Check current branch
 $currentBranch = git branch --show-current
-Write-Host "[3/6] 当前分支: $currentBranch" -ForegroundColor Cyan
+Write-Host "[3/6] Current branch: $currentBranch" -ForegroundColor Cyan
 
-# 4. 检查是否有未提交的更改
+# 4. Check for uncommitted changes
 $status = git status --porcelain
-if ($status -and -not $Force) {
-    Write-Host "[!] 警告: 有未提交的更改" -ForegroundColor Red
-    Write-Host "请先提交或暂存更改，或使用 -Force 强制继续" -ForegroundColor Yellow
+if ($status) {
+    Write-Host "[!] Warning: uncommitted changes" -ForegroundColor Red
+    Write-Host "Please commit or stash changes first" -ForegroundColor Yellow
     git status
     exit 1
 }
 
-# 5. 执行 rebase
-Write-Host "[4/6] 执行 rebase 到 upstream/$UpstreamBranch..." -ForegroundColor Yellow
+# 5. Rebase
+Write-Host "[4/6] Rebasing to upstream/$UpstreamBranch..." -ForegroundColor Yellow
 
-$rebaseResult = git rebase "upstream/$UpstreamBranch" 2>&1
+git rebase "upstream/$UpstreamBranch"
 $rebaseExitCode = $LASTEXITCODE
 
 if ($rebaseExitCode -eq 0) {
-    Write-Host "[+] rebase 完成" -ForegroundColor Green
+    Write-Host "[+] rebase completed" -ForegroundColor Green
 
-    # 6. 推送更改
-    Write-Host "[5/6] 推送更改到 origin..." -ForegroundColor Yellow
-    $pushResult = git push --force-with-lease 2>&1
+    # 6. Push changes
+    Write-Host "[5/6] Pushing to origin..." -ForegroundColor Yellow
+    git push --force-with-lease
     $pushExitCode = $LASTEXITCODE
 
     if ($pushExitCode -eq 0) {
-        Write-Host "[+] 推送完成" -ForegroundColor Green
+        Write-Host "[+] push completed" -ForegroundColor Green
     } else {
-        Write-Host "[!] 推送失败" -ForegroundColor Red
-        Write-Host $pushResult
+        Write-Host "[!] push failed" -ForegroundColor Red
     }
 } else {
-    Write-Host "[!] rebase 遇到冲突" -ForegroundColor Red
+    Write-Host "[!] rebase has conflicts" -ForegroundColor Red
 
-    # 查找冲突文件
+    # Find conflict files
     $conflicts = git status --porcelain | Where-Object { $_ -match "^UU" }
     if ($conflicts) {
-        Write-Host "冲突文件:" -ForegroundColor Yellow
+        Write-Host "Conflict files:" -ForegroundColor Yellow
         $conflicts | ForEach-Object { Write-Host "  $_" -ForegroundColor Red }
     }
 
     Write-Host ""
-    Write-Host "请手动解决冲突后，运行以下命令继续:" -ForegroundColor Cyan
-    Write-Host "  git add <冲突文件>" -ForegroundColor White
+    Write-Host "Resolve conflicts manually, then run:" -ForegroundColor Cyan
+    Write-Host "  git add <conflict-files>" -ForegroundColor White
     Write-Host "  git rebase --continue" -ForegroundColor White
     Write-Host ""
-    Write-Host "或中止 rebase:" -ForegroundColor Cyan
+    Write-Host "Or abort rebase:" -ForegroundColor Cyan
     Write-Host "  git rebase --abort" -ForegroundColor White
 
     exit 1
 }
 
 Write-Host ""
-Write-Host "=== 同步完成 ===" -ForegroundColor Cyan
-Write-Host "最新提交: $(git log --oneline -1)" -ForegroundColor White
+Write-Host "=== Sync completed ===" -ForegroundColor Cyan
+$latestCommit = git log --oneline -1
+Write-Host "Latest commit: $latestCommit" -ForegroundColor White
